@@ -1,8 +1,13 @@
-task,dataset,model,split,metric,value,status
-classification,Chest CT-Scan Images,EfficientNet-B0,test,accuracy,0.832,preliminary
-classification,Chest CT-Scan Images,EfficientNet-B0,test,f1,0.841,preliminary
-classification,Chest CT-Scan Images,Swin Transformer,test,accuracy,0.924,preliminary
-classification,Chest CT-Scan Images,Swin Transformer,test,f1,0.936,preliminary
-segmentation,LIDC-IDRI lidc-148,nnU-Net v2 3d_fullres fold0,val,dsc,0.4825,preliminary
-segmentation,LIDC-IDRI lidc-148,UNet 3+ 3D,test,dsc,,pending rerun of notebook cells 7-10
-segmentation,LIDC-IDRI lidc-148,nnU-Net v2 3d_fullres fold0,test,dsc,,pending
+task,dataset,model,split,metric,value,source
+classification,Chest CT-Scan Images,EfficientNet-B0,test(630),accuracy,0.8317,НИР6 табл.26
+classification,Chest CT-Scan Images,EfficientNet-B0,test(630),macro_f1,0.8412,НИР6 табл.26
+classification,Chest CT-Scan Images,Swin-Tiny,test(630),accuracy,0.9238,НИР6 табл.26
+classification,Chest CT-Scan Images,Swin-Tiny,test(630),macro_f1,0.9358,НИР6 табл.26
+segmentation,LIDC-IDRI subsets,UNet 3+ 3D,val ep30,dsc,0.3241,НИР6 табл.18
+segmentation,LIDC-IDRI subsets,UNet 3+ 3D,val ep30,iou,0.2117,НИР6 табл.18
+segmentation,LIDC-IDRI subsets,UNet 3+ 3D,val ep30,sensitivity,0.5127,НИР6 табл.18
+segmentation,LIDC-IDRI subsets,UNet 3+ 3D,val ep30,precision,0.4614,НИР6 табл.18
+segmentation,LIDC-IDRI subsets,nnU-Net v2 3d_fullres fold0,val ep30,dsc,0.4825,НИР6 табл.21
+segmentation,LIDC-IDRI subsets,nnU-Net v2 3d_fullres fold0,val ep30,iou,0.2991,НИР6 табл.21
+segmentation,LIDC-IDRI subsets,UNet 3+ 3D,test (до исправления вывода),dsc@0.5,0.0000,НИР6 табл.19
+segmentation,LIDC-IDRI subsets,UNet 3+ 3D,test (до исправления вывода),dsc@0.15,0.0006,НИР6 табл.19
