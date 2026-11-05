@@ -1,0 +1,8 @@
+task,dataset,model,split,metric,value,status
+classification,Chest CT-Scan Images,EfficientNet-B0,test,accuracy,0.832,preliminary
+classification,Chest CT-Scan Images,EfficientNet-B0,test,f1,0.841,preliminary
+classification,Chest CT-Scan Images,Swin Transformer,test,accuracy,0.924,preliminary
+classification,Chest CT-Scan Images,Swin Transformer,test,f1,0.936,preliminary
+segmentation,LIDC-IDRI lidc-148,nnU-Net v2 3d_fullres fold0,val,dsc,0.4825,preliminary
+segmentation,LIDC-IDRI lidc-148,UNet 3+ 3D,test,dsc,,pending rerun of notebook cells 7-10
+segmentation,LIDC-IDRI lidc-148,nnU-Net v2 3d_fullres fold0,test,dsc,,pending

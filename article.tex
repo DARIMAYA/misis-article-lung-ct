@@ -1,0 +1,184 @@
+% !TEX program = xelatex
+\documentclass{misisarticle}
+
+% Места, которые нужно заполнить, помечены \todo{...}. Перед сдачей: grep -n todo article.tex
+\newcommand{\todo}[1]{\textbf{[#1]}}
+\newcommand{\sref}[2]{\ref{#1}\,--\,\ref{#2}}  % ссылка на подраздел: III--A
+
+\grnti{28.23.15}
+\asjc{1702}
+\oecd{1.2}
+
+\title{Сегментация и классификация патологий лёгких на КТ-изображениях: сравнение архитектур UNet~3+, nnU-Net, EfficientNet и Swin Transformer}
+
+\misisauthor{Д.~С.~Иванова}{НИТУ «МИСИС»}{Москва, Россия}{}
+
+\setabstract{В работе сравниваются четыре архитектуры глубокого обучения для анализа КТ органов грудной клетки: 3D UNet~3+ и nnU-Net v2 для сегментации узлов лёгких, EfficientNet-B0 и Swin Transformer для классификации КТ-срезов. Сегментация выполнена на подвыборке из 148 пациентов набора LIDC-IDRI (48 с узлами, 100 без; разбиение по пациентам 103/22/23), эталонные маски построены по консенсусу не менее трёх из четырёх рентгенологов. Классификация выполнена на наборе Chest CT-Scan Images. В задаче классификации Swin Transformer показал accuracy 0,924 и F1 0,936 против 0,832 и 0,841 у EfficientNet-B0. В задаче сегментации nnU-Net v2 достиг DSC 0,4825 на валидации. Показано, что несовпадение нормализации при обучении и выводе и отсутствие обратного пространственного преобразования могут обнулить тестовый DSC независимо от качества обучения. Результаты предварительные из-за малого объёма выборки.}
+\setkeywords{узлы лёгких, LIDC-IDRI, 3D-сегментация, коэффициент Дайса, свёрточные сети, визуальные трансформеры}
+
+\begin{document}
+\maketitle
+
+\section{Введение}
+Компьютерная томография (КТ) — основной метод обнаружения узлов и опухолей лёгких. Одно исследование даёт сотни срезов, а ручной поиск небольших очагов занимает у радиолога много времени и зависит от эксперта. Поэтому нужны автоматическая сегментация узлов (где находится очаг) и классификация срезов (какая патология присутствует) как инструменты поддержки врача.
+
+Для этих задач применяют свёрточные сети (UNet~3+~\cite{huang}, nnU-Net~\cite{isensee}, EfficientNet~\cite{tan}) и трансформеры зрения (Swin Transformer~\cite{liu}). Работы выполнены на разных данных и с разной предобработкой, поэтому их числа нельзя сопоставлять напрямую. Для небольшой команды также неясно, что лучше при ограниченных ресурсах: собственная архитектура с ручной настройкой или самонастраивающийся пайплайн. Кроме того, в открытых работах редко описаны ошибки протокола вывода, из-за которых рабочая модель получает нулевой DSC.
+
+\textbf{Цель} — сравнить UNet~3+ и nnU-Net в сегментации узлов, а EfficientNet-B0 и Swin Transformer в классификации КТ-срезов в одинаковых условиях обучения и оценки. \textbf{Гипотезы}: (H1) при одинаковых разбиениях Swin Transformer превзойдёт EfficientNet-B0 по accuracy и F1; (H2) на малой выборке nnU-Net обучится стабильнее кастомного UNet~3+.
+
+Вклад работы:
+\begin{itemize}
+\item воспроизводимый пайплайн для подвыборки LIDC-IDRI (148 пациентов, разбиение по пациентам, консенсусные маски) с едиными условиями для обеих сегментационных моделей (разд.~\ref{sec:methods});
+\item прямое сравнение Swin Transformer и EfficientNet-B0 на одном наборе: разница $+0{,}092$ по accuracy и $+0{,}095$ по F1 в пользу Swin (разд.~\sref{sec:results}{sec:cls});
+\item сравнение UNet~3+ и nnU-Net в сегментации с диагностикой ошибок вывода, приводящих к нулевому DSC (разд.~\sref{sec:results}{sec:seg}, \ref{sec:disc}).
+\end{itemize}
+
+\section{Анализ существующих работ}
+\textbf{Данные.} Набор LIDC-IDRI содержит КТ грудной клетки с разметкой узлов четырьмя рентгенологами~\cite{lidc}. Разметки расходятся, поэтому их сводят к одной маске (консенсусные маски, разд.~\sref{sec:methods}{sec:data}). Объём исходных данных (около 124~ГБ) превышает возможности бесплатных облачных сред, что вынуждает работать с подвыборками.
+
+\textbf{Свёрточные сегментационные сети.} U-Net~\cite{unet} задала схему «кодировщик — декодер с пропускающими связями», 3D U-Net~\cite{unet3d} перенёс её на объёмные данные. UNet~3+~\cite{huang} добавляет полномасштабные пропускающие связи: каждый уровень декодера получает признаки всех масштабов. Ограничение: архитектура описана для 2D и испытана на органах брюшной полости (печень, селезёнка), поэтому её 3D-вариант требует собственной реализации. nnU-Net~\cite{isensee} не меняет архитектуру, а автоматически подбирает предобработку, размер патча, обучение и постобработку под набор данных.
+
+\textbf{Классификация.} EfficientNet~\cite{tan} масштабирует глубину, ширину и разрешение сети как единое целое. Vision Transformer~\cite{vit} заменил свёртки вниманием по патчам изображения, а Swin Transformer~\cite{liu} ограничил внимание сдвигаемыми окнами и построил иерархию признаков с линейной сложностью по размеру изображения. Обе модели предложены для естественных изображений, и их поведение на небольших медицинских наборах нужно проверять отдельно.
+
+\textbf{Русскоязычные работы.} \todo{одна фраза про \cite{dostovalova}, \cite{pashina}: что делали и на чём}; в студенческих работах сборника МИСИС рассматривались архитектуры сегментации~\cite{isachenko, semenov} и смежные методы анализа изображений~\cite{blinov}.
+
+\textbf{Граница «они $\to$ мы».} Перечисленные работы вводят модели на собственных данных и не сравнивают все четыре архитектуры при одинаковом бюджете данных и вычислений, а также не разбирают ошибки протокола вывода (табл.~\ref{tab:related}). Эти два пробела закрывает данная работа.
+
+\begin{table}[htbp]
+\caption{Сопоставление с известными работами}
+\centering\footnotesize
+\begin{tabular}{>{\raggedright\arraybackslash}p{1.9cm}>{\raggedright\arraybackslash}p{2.3cm}>{\raggedright\arraybackslash}p{2.3cm}}
+\toprule
+Работа & Идея & Ограничение\\
+\midrule
+U-Net, 3D U-Net~\cite{unet,unet3d} & кодировщик–декодер & нет полномасштабных связей\\
+UNet~3+~\cite{huang} & полномасштабные связи & 2D, органы брюшной полости\\
+nnU-Net~\cite{isensee} & автонастройка пайплайна & \todo{есть ли сравнение с UNet~3+ на малой выборке LIDC}\\
+EfficientNet, Swin~\cite{tan,liu} & скейлинг CNN; сдвигаемые окна & естественные изображения\\
+\textbf{Данная работа} & все четыре модели в единых условиях; разбор ошибок вывода & малая выборка, предварительные результаты\\
+\bottomrule
+\end{tabular}
+\label{tab:related}
+\end{table}
+
+\section{Материалы и методы}\label{sec:methods}
+\subsection{Данные}\label{sec:data}
+\textbf{Сегментация.} Использован LIDC-IDRI~\cite{lidc}. Из-за ограничений по памяти собрана подвыборка lidc-148: 148 пациентов, из них 48 с узлами и 100 без. Разбиение стратифицировано по наличию узлов и выполнено по пациентам, без утечки срезов между выборками: 103/22/23 пациента (70/15/15~\%) для обучения, валидации и теста. Эталонная маска содержит воксели, отмеченные не менее чем тремя из четырёх рентгенологов.
+
+\textbf{Классификация.} Использован открытый набор Chest CT-Scan Images (Kaggle): \todo{число классов, названия, число изображений в train/val/test}.
+
+\subsection{Предобработка}
+Для UNet~3+: перевод в единицы Хаунсфилда (HU), лёгочное окно (обрезка от $-1000$ до $400$~HU, нормировка делением на 1400 после сдвига), передискретизация на изотропный воксель $1\times1\times1$~мм. При выводе применяется та же нормировка, а предсказание возвращается в исходную сетку обратным пространственным отображением. Для nnU-Net предобработка и постобработка выполняются автоматически~\cite{isensee}.
+
+\subsection{Модели}
+В табл.~\ref{tab:models} приведены конфигурации моделей.
+
+\begin{table}[htbp]
+\caption{Конфигурации моделей}
+\centering\footnotesize
+\begin{tabular}{>{\raggedright\arraybackslash}p{1.9cm}>{\raggedright\arraybackslash}p{1.6cm}>{\raggedright\arraybackslash}p{3.2cm}}
+\toprule
+Модель & Задача & Конфигурация\\
+\midrule
+UNet~3+ (3D) & сегментация & фильтры (32, 64, 128, 256), cat\_ch\,=\,32, 14,69\,млн параметров, патч $64^3$\\
+nnU-Net v2 & сегментация & 3d\_fullres, fold~0, 100 эпох\\
+EfficientNet-B0 & классификация & \todo{предобучение, размер входа}\\
+Swin Transformer & классификация & \todo{вариант tiny/small, предобучение, размер входа}\\
+\bottomrule
+\end{tabular}
+\label{tab:models}
+\end{table}
+
+\subsection{Обучение}
+UNet~3+: патчи $64^3$, batch~2, оптимизатор AdamW, смешанная точность (AMP), функция потерь Tversky\,+\,Focal, ReduceLROnPlateau, начальный LR \todo{3e-4 или 1e-3}, число эпох \todo{N}. Из-за ограничений ресурсов обучение ведётся на случайных сбалансированных подвыборках с сохранением и восстановлением чекпойнтов. Вывод выполняется скользящим окном по всему объёму. nnU-Net: стандартный пайплайн, 100 эпох, fold~0~\cite{isensee}. Классификаторы: \todo{эпохи, LR, аугментации; условия одинаковы для обеих моделей}.
+
+Функция потерь UNet~3+:
+\begin{equation}
+L = L_{\mathrm{Tversky}} + L_{\mathrm{Focal}},
+\label{eq:loss}
+\end{equation}
+\begin{equation}
+L_{\mathrm{Tversky}} = 1 - \frac{TP}{TP + \alpha\,FN + \beta\,FP},\;
+L_{\mathrm{Focal}} = -(1-p_t)^{\gamma}\log p_t,
+\end{equation}
+где $\alpha$, $\beta$, $\gamma$ и веса слагаемых: \todo{взять из ноутбука}.
+
+\subsection{Метрики}
+Для сегментации используются коэффициент Дайса (DSC), IoU, чувствительность, точность и специфичность, рассчитанные по тестовым пациентам в исходной сетке. Здесь $TP$, $FP$, $FN$, $TN$ — числа истинно положительных, ложноположительных, ложноотрицательных и истинно отрицательных вокселей (для классификации — срезов), $A$ — предсказанная, $B$ — эталонная маска:
+\begin{equation}
+\mathrm{DSC} = \frac{2|A \cap B|}{|A|+|B|} = \frac{2\,TP}{2\,TP+FP+FN},
+\label{eq:dsc}
+\end{equation}
+\begin{equation}
+\mathrm{IoU} = \frac{|A\cap B|}{|A\cup B|} = \frac{TP}{TP+FP+FN},
+\end{equation}
+\begin{equation}
+\mathrm{Sens}=\frac{TP}{TP+FN},\;
+\mathrm{Prec}=\frac{TP}{TP+FP},\;
+\mathrm{Spec}=\frac{TN}{TN+FP}.
+\end{equation}
+Для классификации: accuracy $=\dfrac{TP+TN}{TP+TN+FP+FN}$ и $F_1=\dfrac{2\,\mathrm{Prec}\cdot\mathrm{Sens}}{\mathrm{Prec}+\mathrm{Sens}}$.
+
+\section{Результаты}\label{sec:results}
+\subsection{Классификация}\label{sec:cls}
+Swin Transformer превзошёл EfficientNet-B0: accuracy выросла на 0,092, F1 — на 0,095 (табл.~\ref{tab:cls}).
+
+\begin{table}[htbp]
+\caption{Классификация КТ-срезов (Chest CT-Scan Images), единое разбиение, один запуск}
+\centering
+\begin{tabular}{lcc}
+\toprule
+Модель & Accuracy & F1\\
+\midrule
+EfficientNet-B0 & 0,832 & 0,841\\
+Swin Transformer & 0,924 & 0,936\\
+\bottomrule
+\end{tabular}
+\label{tab:cls}
+\end{table}
+
+\subsection{Сегментация}\label{sec:seg}
+nnU-Net v2 достиг DSC 0,4825 на валидации. Для UNet~3+ в первом отчёте тестовый DSC равнялся 0 из-за ошибок вывода (разд.~\ref{sec:disc}); значения после исправления пайплайна приведены в табл.~\ref{tab:seg}.
+
+\begin{table}[htbp]
+\caption{Сегментация узлов, 23 тестовых пациента}
+\centering\footnotesize
+\begin{tabular}{lccccc}
+\toprule
+Модель & DSC val & DSC test & IoU & Sens & Prec\\
+\midrule
+UNet~3+ & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--}\\
+nnU-Net v2 & 0,4825 & \todo{--} & \todo{--} & \todo{--} & \todo{--}\\
+\bottomrule
+\end{tabular}
+\label{tab:seg}
+\end{table}
+
+\section{Обсуждение}\label{sec:disc}
+\textbf{Классификация (H1).} Гипотеза подтвердилась в данной постановке: Swin точнее EfficientNet-B0 на 9 п.\,п. по accuracy. Возможное объяснение — иерархические признаки и внимание в сдвигаемых окнах~\cite{liu} лучше улавливают глобальную структуру среза, но без абляций и повторных запусков это остаётся предположением. Статистическая значимость не проверялась.
+
+\textbf{Сегментация (H2).} Сравнение нельзя считать завершённым, пока не получены тестовые значения обеих моделей (табл.~\ref{tab:seg}). Уже сейчас видно, что итог зависит не только от архитектуры, но и от протокола вывода. В первом отчёте UNet~3+ дал тестовый DSC\,=\,0 по двум причинам: нормализация при выводе не совпадала с обучающей, а предсказание не возвращалось в исходную сетку обратным пространственным отображением. nnU-Net защищён от обоих сбоев, так как предобработка и обратное преобразование встроены в пайплайн~\cite{isensee}. Это практический аргумент в пользу автонастройки при малых командах и ограниченных ресурсах.
+
+\textbf{Ограничения.} (1) 148 пациентов и лишь 48 с узлами; 23 тестовых пациента дают широкий доверительный интервал. (2) Обучение на случайных подвыборках из-за лимита памяти. (3) Однократные запуски. (4) Классификация и сегментация идут на разных наборах, их результаты не сравниваются между собой. (5) DSC 0,4825 заметно ниже опубликованных результатов на полном LIDC-IDRI; прямое сопоставление некорректно из-за другой выборки.
+
+\textbf{Дальнейшая работа.} Полный LIDC-IDRI, 5-кратная кросс-валидация, повторные запуски для доверительных интервалов, 3D-вариант Swin для сегментации.
+
+\section{Заключение}
+На Chest CT-Scan Images Swin Transformer превзошёл EfficientNet-B0: accuracy 0,924 против 0,832, F1 0,936 против 0,841. Для сегментации узлов на LIDC-IDRI (148 пациентов) собран воспроизводимый пайплайн с разбиением по пациентам и консенсусными масками; nnU-Net v2 достиг валидационного DSC 0,4825. Несовпадение нормализации и отсутствие обратного пространственного отображения при выводе обнуляют DSC независимо от качества обучения, поэтому их проверка обязательна до сравнения архитектур. Результаты предварительные: выборка мала, запуски единичные.
+
+\begin{thebibliography}{13}
+\bibitem{huang} Huang H. et al. UNet 3+: A Full-Scale Connected UNet for Medical Image Segmentation. ICASSP 2020. \url{https://arxiv.org/abs/2004.08790}.
+\bibitem{isensee} Isensee F. et al. nnU-Net: a self-configuring method for deep learning-based biomedical image segmentation. Nature Methods. 2021. Vol.~18, No.~2. P.~203–211.
+\bibitem{tan} Tan M., Le Q. EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks. ICML 2019. \url{https://arxiv.org/abs/1905.11946}.
+\bibitem{liu} Liu Z. et al. Swin Transformer: Hierarchical Vision Transformer using Shifted Windows. ICCV 2021. \url{https://arxiv.org/abs/2103.14030}.
+\bibitem{lidc} Armato S.\,G. et al. The Lung Image Database Consortium (LIDC) and Image Database Resource Initiative (IDRI): a completed reference database of lung nodules on CT scans. Medical Physics. 2011. Vol.~38, No.~2. P.~915–931. DOI 10.1118/1.3528204.
+\bibitem{unet} Ronneberger O., Fischer P., Brox T. U-Net: Convolutional Networks for Biomedical Image Segmentation. MICCAI 2015, LNCS 9351. P.~234–241.
+\bibitem{unet3d} Çiçek Ö. et al. 3D U-Net: Learning Dense Volumetric Segmentation from Sparse Annotation. MICCAI 2016, LNCS 9901. P.~424–432.
+\bibitem{vit} Dosovitskiy A. et al. An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale. ICLR 2021. \url{https://arxiv.org/abs/2010.11929}.
+\bibitem{dostovalova} \todo{Достовалова, 2024 — полное описание из таблицы}
+\bibitem{pashina} \todo{Пашина, 2020 — полное описание из таблицы}
+\bibitem{isachenko} \todo{Исаченко, Парчиев. DUCK-Net. Сборник МИСИС, вып.~2, 2024, С.~54–60, EDN TESNHV — проверить название}. \url{https://sadekov.su/Articles/kik_2024_1.pdf}.
+\bibitem{semenov} \todo{Семёнов. EDN QTUZKL — проверить название на eLIBRARY}. \url{https://sadekov.su/Articles/kik_2026_1.pdf}.
+\bibitem{blinov} \todo{Блинов К., Курочкин И.\,И. ICCS-DE 2025 — проверить название}. DOI 10.47350/iccs-de.2025.06.
+\end{thebibliography}
+\end{document}
